@@ -13,9 +13,14 @@ st.set_page_config(
     layout="centered",
 )
 
-# If this model name stops working, check console.groq.com/docs/models
-# and replace it with another available model.
-MODEL = "llama-3.3-70b-versatile"
+# The app tries these models in order and uses the first one that works.
+# Groq changes its model list often, so check console.groq.com/docs/models
+# if all of them stop working, and replace the names below.
+MODELS = [
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3-32b",
+]
 
 DOC_TYPES = [
     "Leave application",
@@ -82,19 +87,30 @@ def ask_ai(system_prompt, user_prompt):
             'and add: GROQ_API_KEY = "your_key_here"'
         )
         return None
-    try:
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.6,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as error:
-        st.error(f"Sorry, the AI request failed. Please try again.\n\nDetails: {error}")
-        return None
+    last_error = None
+    for model in MODELS:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.6,
+            )
+            text = response.choices[0].message.content or ""
+            # Some models add their thinking inside <think> tags; remove it.
+            if "</think>" in text:
+                text = text.split("</think>")[-1]
+            return text.strip()
+        except Exception as error:
+            last_error = error
+            # If the model does not exist, try the next one in the list.
+            if "model_not_found" in str(error) or "404" in str(error):
+                continue
+            break
+    st.error(f"Sorry, the AI request failed. Please try again.\n\nDetails: {last_error}")
+    return None
 
 
 def init_state():
